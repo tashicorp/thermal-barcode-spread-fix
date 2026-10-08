@@ -4,6 +4,7 @@
 // The PDF is rendered at the printer's own resolution with no smoothing, then every bar of
 // every 1D barcode is thinned by N dots (bar-width reduction) to offset thermal dot spread.
 // Bar centres and pitch are unchanged, so the barcode's data and printed size stay the same.
+// Pages are turned so barcode bars run along the paper feed, which keeps gaps from filling in.
 // Every barcode is decoded again after processing; if any value changed, nothing is printed.
 import Foundation
 import CoreGraphics
@@ -20,6 +21,7 @@ options:
   --reduce N          dots to thin each barcode bar (default: 1)
   -o key=value        driver option passed to lp, repeatable (e.g. -o Darkness=Low)
   --page-size SIZE    lp PageSize (default: Custom.<width>x<height> from the PDF)
+  --no-rotate         don't turn pages so barcode bars run along the paper feed
   --out FILE.pdf      write the processed PDF instead of printing
 """
 
@@ -38,6 +40,7 @@ var reduce = 1
 var lpOptions: [String] = []
 var pageSizeArg: String?
 var outPath: String?
+var noRotate = false
 
 var argv = Array(CommandLine.arguments.dropFirst())[...]
 func value(_ name: String) -> String {
@@ -58,6 +61,7 @@ while let a = argv.popFirst() {
     case "-o": lpOptions.append(value(a))
     case "--page-size": pageSizeArg = value(a)
     case "--out": outPath = value(a)
+    case "--no-rotate": noRotate = true
     default:
         if a.hasPrefix("-") || input != nil { fail("unexpected argument: \(a)\n\n\(usage)") }
         input = a
@@ -195,13 +199,12 @@ func payloads(_ obs: [VNBarcodeObservation]) -> [String] {
 let url = outputURL()
 var media = CGRect.zero
 let out = CGContext(url as CFURL, mediaBox: nil, nil)!
-var firstBox = CGRect.zero
+var firstPageSize = ""
 
 for n in 1...doc.numberOfPages {
     let page = doc.page(at: n)!
     if page.rotationAngle % 360 != 0 { fail("page \(n) has /Rotate \(page.rotationAngle); rotated pages aren't supported yet") }
     let box = page.getBoxRect(.mediaBox)
-    if n == 1 { firstBox = box }
 
     // 1. Find barcodes in a high-resolution render of the original.
     let found = barcodes(render(page, scale: 600 / 72, antialias: true).makeImage()!)
@@ -235,7 +238,7 @@ for n in 1...doc.numberOfPages {
 
     // 3. Thin the bars of each 1D barcode (bitmap rows run top-down).
     var regions: [Region] = []
-    for b in linear where reduce > 0 {
+    for b in linear {
         let bb = b.boundingBox
         let x0 = max(0, Int(bb.minX * Double(W)) - 2), x1 = min(W, Int(bb.maxX * Double(W)) + 2)
         let y0 = max(0, Int((1 - bb.maxY) * Double(H)) - 2), y1 = min(H, Int((1 - bb.minY) * Double(H)) + 2)
@@ -250,6 +253,7 @@ for n in 1...doc.numberOfPages {
         let stackedAlongY = alongY > alongX
         let region = Region(x: x0..<x1, y: y0..<y1, stackedAlongY: stackedAlongY)
         regions.append(region)
+        guard reduce > 0 else { continue }
         eachRun(region, px) { start, end, at in
             for k in max(start + 1, end - reduce)..<end { px[at(k)] = 255 }  // keep at least 1 dot
         }
@@ -264,7 +268,7 @@ for n in 1...doc.numberOfPages {
                         space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0)!
     sim.draw(bitmap, in: CGRect(x: 0, y: 0, width: W, height: H))
     let spx = sim.data!.bindMemory(to: UInt8.self, capacity: W * H)
-    for r in regions {
+    for r in regions where reduce > 0 {
         let limit = r.stackedAlongY ? r.y.upperBound : r.x.upperBound
         eachRun(r, px) { _, end, at in  // scan the thinned bitmap, write the copy
             for k in end..<min(end + reduce, limit) { spx[at(k)] = 0 }
@@ -281,14 +285,24 @@ for n in 1...doc.numberOfPages {
     }
     print("page \(n): \(expected.count) barcode(s) verified at \(Int(dpi)) dpi, \(W)x\(H) dots")
 
-    // 5. Add the page to the output PDF at its original size.
-    media = box
+    // 5. Add the page to the output PDF at its original size. The paper feeds from the top of the
+    // page, so bars stacked down the page lie across the print head. Dense rows of bars across the
+    // head build up heat and fill in the gaps, so turn the page 90 degrees to run them along the feed.
+    let size = box.size
+    let rotate = !noRotate && regions.contains { $0.stackedAlongY }
+    media = CGRect(x: 0, y: 0, width: rotate ? size.height : size.width, height: rotate ? size.width : size.height)
+    if n == 1 { firstPageSize = "Custom.\(Int(media.width))x\(Int(media.height))" }
+    if rotate { print("page \(n): rotated 90 degrees so barcode bars run along the paper feed") }
     out.beginPage(mediaBox: &media)
     out.interpolationQuality = .none
-    out.draw(bitmap, in: box)
+    if rotate {
+        out.translateBy(x: size.height, y: 0)
+        out.rotate(by: .pi / 2)
+    }
+    out.draw(bitmap, in: CGRect(origin: .zero, size: size))
     out.endPage()
 }
 out.closePDF()
 
 if outPath != nil { print("wrote \(url.path)"); exit(0) }
-send(url, pageSize: pageSizeArg ?? "Custom.\(Int(firstBox.width))x\(Int(firstBox.height))")
+send(url, pageSize: pageSizeArg ?? firstPageSize)
