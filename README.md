@@ -1,12 +1,14 @@
-# thermal-label-fix
+# thermal-barcode-spread-fix
 
-Print shipping labels on cheap 200/203 dpi thermal printers **at true size**, with 1D barcodes that still scan.
+Makes dense 1D barcodes scannable on thermal printers whose dots spread, such as portable A4 printers and budget label printers, **without scaling the label**.
 
-macOS only. One Swift file, no dependencies.
+The command is `print-label`. macOS only. One Swift file, no dependencies.
+
+**Do you need this?** Probably not if you have a proper label printer (Zebra, Dymo …) and your labels already scan. Run `print-label calibrate`: if gaps of 1–2 dots stay white, your printer doesn't spread enough to need it.
 
 ## The problem
 
-Carrier labels, such as Australia Post MyPost Business 4×6 labels, use dense Code 128 barcodes. On a MyPost label the narrowest bar or gap is 0.84pt, which is about **2.4 dots** at 203 dpi. Thermal print heads spread each dot a little. On some printers 1–2 dot gaps fill in completely, the bars merge, and the barcode won't scan.
+Carrier labels, such as Australia Post MyPost Business 4×6 labels, use dense Code 128 barcodes. On a MyPost label the narrowest bar or gap is 0.84pt, which is about **2.4 dots** at 203 dpi. Good label printers print this fine. But some thermal printers spread each dot far enough that 1–2 dot gaps fill in completely: the bars merge and the barcode won't scan. This is common with printers built for documents rather than labels, plain thermal paper, and drivers with no print-width adjustment.
 
 Things that don't fix it:
 
@@ -26,7 +28,7 @@ This is the same "bar-width reduction" that professional label software applies 
 ## Install
 
 ```sh
-git clone <this repo> && cd thermal-label-fix
+git clone <this repo> && cd thermal-barcode-spread-fix
 make install          # builds with swiftc, installs to ~/.local/bin/print-label
 ```
 
@@ -77,7 +79,9 @@ Please open a PR adding your printer to this table.
 - The check uses Apple's barcode reader on a simulated print, not a carrier's scanner. Before relying on it, test one label: scan the printed barcode with a phone barcode app and compare the number.
 - The simulated print is only a model of the print head. It catches lost or merged bars, but can't prove your printer will spread the bars exactly `N` dots.
 - PDFs with rotated pages (`/Rotate`) aren't supported yet.
-- At 200/203 dpi each bar can only be a whole number of dots, so widths vary by ±1 dot. Code 128 tolerates this. If you print many labels, a 300 dpi printer is the real fix.
+- At 200/203 dpi each bar can only be a whole number of dots, so widths vary by ±1 dot. Code 128 tolerates this.
+- Only Code 128 has been tested. Other 1D types (Code 39, EAN/UPC, ITF …) are processed the same way and should work, but are untested. GS1 DataBar may react differently to thinning.
+- If you print many labels, a dedicated label printer whose barcodes scan without help is the real fix.
 
 ## Tests
 

@@ -1,5 +1,5 @@
-// print-label: print shipping-label PDFs on low-resolution (200/203 dpi) thermal printers
-// at true size, with 1D barcodes that still scan.
+// print-label (thermal-barcode-spread-fix): print shipping-label PDFs at true size on thermal
+// printers whose dots spread, with 1D barcodes that still scan.
 //
 // The PDF is rendered at the printer's own resolution with no smoothing, then every bar of
 // every 1D barcode is thinned by N dots (bar-width reduction) to offset thermal dot spread.
