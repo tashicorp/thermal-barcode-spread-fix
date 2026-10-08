@@ -40,7 +40,7 @@ Requires the Xcode command line tools (`xcode-select --install`).
 make install-app
 ```
 
-Installs `/Applications/Print Label.app`, which adds **Print Label** to Finder's right-click menu for PDFs. It also works from Open With, or open the app and pick a file. It runs its bundled copy of `print-label` on the default printer with that printer's default settings, then shows a notification, or an alert if the barcode couldn't be verified. Each run is logged to `~/Library/Logs/PrintLabel.log`.
+Installs `/Applications/Print Label.app`, which adds **Print Label** to Finder's right-click menu for PDFs. It also works from Open With, or open the app and pick a file. It runs its bundled copy of `print-label` on the default printer with that printer's default settings, and stays silent when it works. An alert appears only if the barcode couldn't be verified or the job couldn't be sent. Each run is logged to `~/Library/Logs/PrintLabel.log`.
 
 Set your thermal printer as the default and its darkness default first:
 

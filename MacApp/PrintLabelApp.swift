@@ -1,10 +1,10 @@
 // Print Label.app: adds "Print Label" to Finder's right-click menu for PDFs (an NSServices
 // entry, the same mechanism Ghostty uses for "New Ghostty Tab Here"), and also handles
 // Open With. Runs the bundled print-label on the default printer with its default settings.
+// Success is silent; an alert appears only if the barcode can't be verified or printing fails.
 //
 // Test without printing: "Print Label.app/Contents/MacOS/PrintLabel" --dry-run label.pdf
 import AppKit
-import UserNotifications
 
 let logURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/PrintLabel.log")
 
@@ -84,28 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async { [self] in
                     let name = pdf.lastPathComponent
                     if r.ok {
-                        notify("Printed \(name)", "Barcode verified and sent to the printer.")
+                        finish()  // success is silent; the label just prints
                     } else {
                         let tail = r.output.split(separator: "\n").suffix(6).joined(separator: "\n")
                         alert("Couldn't print \(name)", tail)
-                        finish()
-                    }
-                }
-            }
-        }
-    }
-
-    private func notify(_ title: String, _ body: String) {
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            DispatchQueue.main.async { [self] in
-                guard granted else { alert(title, body); finish(); return }
-                let content = UNMutableNotificationContent()
-                content.title = title
-                content.body = body
-                center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)) { err in
-                    DispatchQueue.main.async { [self] in
-                        if err != nil { alert(title, body) }
                         finish()
                     }
                 }
