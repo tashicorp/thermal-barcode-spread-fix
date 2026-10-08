@@ -34,6 +34,21 @@ make install          # builds with swiftc, installs to ~/.local/bin/print-label
 
 Requires the Xcode command line tools (`xcode-select --install`).
 
+### Finder Quick Action (optional)
+
+```sh
+make install-quick-action
+```
+
+Adds **Print Label** to Finder's right-click menu for PDFs (Quick Actions → Print Label). It runs `print-label` on the default printer with that printer's default settings, then shows a notification, or an alert if the barcode couldn't be verified. Set your thermal printer as the default and its darkness default first:
+
+```sh
+lpoptions -d QUEUE
+lpadmin -p QUEUE -o Darkness-default=Low   # option name depends on the driver
+```
+
+If it doesn't show up, enable it in System Settings → General → Login Items & Extensions → Finder (or Quick Actions).
+
 ## Use
 
 ```sh

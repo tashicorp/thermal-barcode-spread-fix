@@ -11,7 +11,14 @@ install: bin/print-label
 	install -d $(PREFIX)/bin
 	install -m 755 bin/print-label $(PREFIX)/bin/print-label
 
+# Finder right-click > Quick Actions > Print Label (uses the default printer)
+install-quick-action: install
+	install -d $(HOME)/Library/Services
+	rm -rf "$(HOME)/Library/Services/Print Label.workflow"
+	cp -R "QuickAction/Print Label.workflow" $(HOME)/Library/Services/
+	/System/Library/CoreServices/pbs -update
+
 clean:
 	rm -rf bin Tests/out
 
-.PHONY: test install clean
+.PHONY: test install install-quick-action clean
