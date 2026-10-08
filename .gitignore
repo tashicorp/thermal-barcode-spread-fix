@@ -1,0 +1,7 @@
+bin/
+Tests/out/
+# Real labels contain names and addresses: never commit them.
+*.pdf
+!Tests/fixtures/*.pdf
+*.jpg
+*.png
