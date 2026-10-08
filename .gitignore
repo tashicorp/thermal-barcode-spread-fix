@@ -5,3 +5,4 @@ Tests/out/
 !Tests/fixtures/*.pdf
 *.jpg
 *.png
+build/

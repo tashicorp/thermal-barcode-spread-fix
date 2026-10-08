@@ -11,17 +11,26 @@ install: bin/print-label
 	install -d $(PREFIX)/bin
 	install -m 755 bin/print-label $(PREFIX)/bin/print-label
 
-# Print Label.app: Finder right-click > Open With > Print Label (uses the default printer)
-APP = /Applications/Print Label.app
-install-app: install
+# Print Label.app: Finder right-click > Print Label, or Open With (uses the default printer)
+APP = build/Print Label.app
+LSREGISTER = /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
+app: bin/print-label MacApp/PrintLabelApp.swift MacApp/Info.plist
 	rm -rf "$(APP)"
-	osacompile -o "$(APP)" "MacApp/Print Label.applescript"
-	plutil -replace CFBundleIdentifier -string com.github.tashicorp.thermal-barcode-spread-fix.print-label "$(APP)/Contents/Info.plist"
-	plutil -replace CFBundleDocumentTypes -json '[{"CFBundleTypeName":"PDF document","CFBundleTypeRole":"Viewer","LSHandlerRank":"Alternate","LSItemContentTypes":["com.adobe.pdf"]}]' "$(APP)/Contents/Info.plist"
+	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
+	swiftc -O -o "$(APP)/Contents/MacOS/PrintLabel" MacApp/PrintLabelApp.swift
+	cp MacApp/Info.plist "$(APP)/Contents/Info.plist"
+	cp bin/print-label "$(APP)/Contents/Resources/print-label"
+	codesign --force --sign - "$(APP)/Contents/Resources/print-label"
 	codesign --force --sign - "$(APP)"
-	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$(APP)"
+
+install-app: app
+	rm -rf "/Applications/Print Label.app"
+	cp -R "$(APP)" /Applications/
+	$(LSREGISTER) -f "/Applications/Print Label.app"
+	/System/Library/CoreServices/pbs -update
 
 clean:
-	rm -rf bin Tests/out
+	rm -rf bin build Tests/out
 
-.PHONY: test install install-app clean
+.PHONY: test install app install-app clean

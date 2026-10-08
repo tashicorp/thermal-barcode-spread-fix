@@ -40,14 +40,16 @@ Requires the Xcode command line tools (`xcode-select --install`).
 make install-app
 ```
 
-Installs `/Applications/Print Label.app`. Right-click a label PDF in Finder and choose **Open With → Print Label**, or open the app and pick a file. It runs `print-label` on the default printer with that printer's default settings, then shows a notification, or an alert if the barcode couldn't be verified. Set your thermal printer as the default and its darkness default first:
+Installs `/Applications/Print Label.app`, which adds **Print Label** to Finder's right-click menu for PDFs. It also works from Open With, or open the app and pick a file. It runs its bundled copy of `print-label` on the default printer with that printer's default settings, then shows a notification, or an alert if the barcode couldn't be verified. Each run is logged to `~/Library/Logs/PrintLabel.log`.
+
+Set your thermal printer as the default and its darkness default first:
 
 ```sh
 lpoptions -d QUEUE
 lpadmin -p QUEUE -o Darkness-default=Low   # option name depends on the driver
 ```
 
-(A Finder Quick Action would be nicer, but a workflow file built outside Automator didn't show up in Finder on macOS 27, so this uses an app instead.)
+If the menu item doesn't appear, run `killall Finder`, or look under right-click → Services. To test without printing, run `"/Applications/Print Label.app/Contents/MacOS/PrintLabel" --dry-run label.pdf`.
 
 ## Use
 
