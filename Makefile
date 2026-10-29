@@ -27,7 +27,9 @@ app: bin/print-label MacApp/PrintLabelApp.swift MacApp/Info.plist
 install-app: app
 	rm -rf "/Applications/Print Label.app"
 	cp -R "$(APP)" /Applications/
+	-$(LSREGISTER) -u "$(CURDIR)/$(APP)"
 	$(LSREGISTER) -f "/Applications/Print Label.app"
+	/System/Library/CoreServices/pbs -flush
 	/System/Library/CoreServices/pbs -update
 
 clean:

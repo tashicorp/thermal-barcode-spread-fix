@@ -30,4 +30,21 @@ for r in 0 1 2; do
   fi
   echo "ok   reduce=$r"
 done
+
+# --fit: the same label shrunk onto an A4 page (as eBay serves it) must come out as a 4x6 label
+# with every barcode intact, and decode to the same values at --reduce 0.
+swift Tests/make-fixture.swift Tests/out/fixture-a4.pdf --on-a4
+for r in 0 1; do
+  out=Tests/out/fit-reduce-$r.pdf
+  if ! log=$(bin/print-label --dpi 203 --reduce "$r" --fit 4x6in --out "$out" Tests/out/fixture-a4.pdf 2>&1); then
+    echo "FAIL fit reduce=$r: print-label refused"; echo "$log"; status=1; continue
+  fi
+  printf '%s\n' "$log" | grep -q 'scaled 1.[0-9]*x to fit 102x152mm' || { echo "FAIL fit reduce=$r: unexpected scale"; echo "$log"; status=1; }
+  if [ "$r" -eq 0 ]; then
+    got=$(swift Tests/decode.swift "$out")
+    [ "$got" = "$expected" ] || {
+      echo "FAIL fit reduce=0: decoded values differ"; echo "expected:"; echo "$expected"; echo "got:"; echo "$got"; status=1; continue; }
+  fi
+  echo "ok   fit reduce=$r"
+done
 exit $status

@@ -22,6 +22,9 @@ options:
   -o key=value        driver option passed to lp, repeatable (e.g. -o Darkness=Low)
   --page-size SIZE    lp PageSize (default: Custom.<width>x<height> from the PDF)
   --no-rotate         don't turn pages so barcode bars run along the paper feed
+  --fit WxH[in|mm]    crop each page to its printed content and scale that to fit a label of
+                      this size, e.g. --fit 4x6in. For labels that a website has shrunk onto
+                      an A4 page (eBay's Australia Post labels). Default: print at true size.
   --out FILE.pdf      write the processed PDF instead of printing
 """
 
@@ -41,6 +44,7 @@ var lpOptions: [String] = []
 var pageSizeArg: String?
 var outPath: String?
 var noRotate = false
+var fitSize: CGSize?
 
 var argv = Array(CommandLine.arguments.dropFirst())[...]
 func value(_ name: String) -> String {
@@ -62,6 +66,14 @@ while let a = argv.popFirst() {
     case "--page-size": pageSizeArg = value(a)
     case "--out": outPath = value(a)
     case "--no-rotate": noRotate = true
+    case "--fit":
+        // WxH in points, or with an in/mm suffix: 288x432, 4x6in, 100x150mm
+        var v = value(a)
+        var unit = 1.0
+        if v.hasSuffix("in") { unit = 72; v.removeLast(2) } else if v.hasSuffix("mm") { unit = 72 / 25.4; v.removeLast(2) }
+        let parts = v.split(separator: "x").map { Double($0) }
+        guard parts.count == 2, let w = parts[0], let h = parts[1], w > 0, h > 0 else { fail("--fit must be WxH, WxHin or WxHmm, e.g. --fit 4x6in") }
+        fitSize = CGSize(width: w * unit, height: h * unit)
     default:
         if a.hasPrefix("-") || input != nil { fail("unexpected argument: \(a)\n\n\(usage)") }
         input = a
@@ -171,9 +183,18 @@ guard let doc = CGPDFDocument(URL(fileURLWithPath: input!) as CFURL), doc.number
 
 let twoD: Set<VNBarcodeSymbology> = [.qr, .microQR, .aztec, .dataMatrix, .pdf417, .microPDF417]
 
-func render(_ page: CGPDFPage, scale: Double, antialias: Bool) -> CGContext {
-    let box = page.getBoxRect(.mediaBox)
-    let w = Int((box.width * scale).rounded()), h = Int((box.height * scale).rounded())
+/// How a PDF page maps onto the output page: `source` (in PDF points) is drawn scaled by
+/// `factor` at `offset` on an output page of `size` points. The identity layout prints the
+/// page's media box at true size.
+struct Layout {
+    var source: CGRect
+    var size: CGSize
+    var factor = 1.0
+    var offset = CGPoint.zero
+}
+
+func render(_ page: CGPDFPage, _ layout: Layout, scale: Double, antialias: Bool) -> CGContext {
+    let w = Int((layout.size.width * scale).rounded()), h = Int((layout.size.height * scale).rounded())
     let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
                         space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0)!
     ctx.setFillColor(gray: 1, alpha: 1)
@@ -181,10 +202,31 @@ func render(_ page: CGPDFPage, scale: Double, antialias: Bool) -> CGContext {
     ctx.setShouldAntialias(antialias)
     ctx.interpolationQuality = antialias ? .high : .none
     ctx.scaleBy(x: scale, y: scale)
-    ctx.translateBy(x: -box.minX, y: -box.minY)
+    ctx.translateBy(x: layout.offset.x, y: layout.offset.y)
+    ctx.scaleBy(x: layout.factor, y: layout.factor)
+    ctx.translateBy(x: -layout.source.minX, y: -layout.source.minY)
+    ctx.clip(to: layout.source)
     ctx.drawPDFPage(page)
     return ctx
 }
+
+/// The smallest rectangle (PDF points) holding every non-white mark on the page, or nil if blank.
+func inkBox(_ page: CGPDFPage) -> CGRect? {
+    let box = page.getBoxRect(.mediaBox)
+    let s = 2.0  // 144 dpi is plenty to find the edges of a label
+    let ctx = render(page, Layout(source: box, size: box.size), scale: s, antialias: true)
+    let W = ctx.width, H = ctx.height
+    let px = ctx.data!.bindMemory(to: UInt8.self, capacity: W * H)
+    var x0 = W, x1 = -1, y0 = H, y1 = -1  // bitmap rows run top-down
+    for y in 0..<H { for x in 0..<W where px[y * W + x] < 250 {
+        x0 = min(x0, x); x1 = max(x1, x); y0 = min(y0, y); y1 = max(y1, y)
+    } }
+    guard x1 >= 0 else { return nil }
+    return CGRect(x: box.minX + Double(x0) / s, y: box.minY + Double(H - y1 - 1) / s,
+                  width: Double(x1 - x0 + 1) / s, height: Double(y1 - y0 + 1) / s)
+}
+
+func mm(_ size: CGSize) -> String { "\(Int((size.width * 25.4 / 72).rounded()))x\(Int((size.height * 25.4 / 72).rounded()))mm" }
 
 func barcodes(_ img: CGImage) -> [VNBarcodeObservation] {
     let r = VNDetectBarcodesRequest()
@@ -206,15 +248,28 @@ for n in 1...doc.numberOfPages {
     if page.rotationAngle % 360 != 0 { fail("page \(n) has /Rotate \(page.rotationAngle); rotated pages aren't supported yet") }
     let box = page.getBoxRect(.mediaBox)
 
+    // 0. Lay the page out: at true size, or (--fit) cropped to its content and scaled to fit the label.
+    var layout = Layout(source: box, size: box.size)
+    if let fit = fitSize {
+        guard let ink = inkBox(page) else { fail("page \(n) is blank") }
+        let margin = 6.0  // points of white around the content, about 2mm
+        layout.factor = min((fit.width - 2 * margin) / ink.width, (fit.height - 2 * margin) / ink.height)
+        layout.source = ink
+        layout.size = fit
+        layout.offset = CGPoint(x: (fit.width - ink.width * layout.factor) / 2, y: (fit.height - ink.height * layout.factor) / 2)
+        print("page \(n): content \(mm(ink.size)) on a \(mm(box.size)) page, scaled \(String(format: "%.2f", layout.factor))x to fit \(mm(fit))")
+    }
+
     // 1. Find barcodes in a high-resolution render of the original.
-    let found = barcodes(render(page, scale: 600 / 72, antialias: true).makeImage()!)
+    let found = barcodes(render(page, layout, scale: 600 / 72, antialias: true).makeImage()!)
     let expected = payloads(found)
     let linear = found.filter { !twoD.contains($0.symbology) }
     for p in expected { print("page \(n) original   \(p)") }
     if linear.isEmpty { print("page \(n): no 1D barcode found; printing without bar thinning") }
 
-    // 2. Render at printer resolution, 1-bit.
-    let ctx = render(page, scale: dpi / 72, antialias: false)
+    // 2. Render at printer resolution, then threshold to 1-bit. Render antialiased: point-sampling
+    // drops bars that fall on half-dot boundaries, so the barcode never decodes.
+    let ctx = render(page, layout, scale: dpi / 72, antialias: true)
     let W = ctx.width, H = ctx.height
     let px = ctx.data!.bindMemory(to: UInt8.self, capacity: W * H)
     for i in 0..<(W * H) { px[i] = px[i] < 128 ? 0 : 255 }
@@ -288,7 +343,7 @@ for n in 1...doc.numberOfPages {
     // 5. Add the page to the output PDF at its original size. The paper feeds from the top of the
     // page, so bars stacked down the page lie across the print head. Dense rows of bars across the
     // head build up heat and fill in the gaps, so turn the page 90 degrees to run them along the feed.
-    let size = box.size
+    let size = layout.size
     let rotate = !noRotate && regions.contains { $0.stackedAlongY }
     media = CGRect(x: 0, y: 0, width: rotate ? size.height : size.width, height: rotate ? size.width : size.height)
     if n == 1 { firstPageSize = "Custom.\(Int(media.width))x\(Int(media.height))" }

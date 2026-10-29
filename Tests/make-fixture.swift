@@ -1,6 +1,8 @@
 // Builds a synthetic 4x6 label: two Code 128 barcodes (one per bar direction) with the same
 // narrow-module size as an Australia Post MyPost label (0.84pt), a QR code and some text.
-// All data is made up. Usage: swift Tests/make-fixture.swift out.pdf
+// All data is made up. Usage: swift Tests/make-fixture.swift out.pdf [--on-a4]
+// --on-a4 draws the same label at 88% near the top-left of an A4 page, the way eBay's
+// "print label" page lays out an Australia Post label.
 import Foundation
 import CoreGraphics
 import CoreImage
@@ -16,10 +18,15 @@ func code(_ filter: String, _ message: String) -> CGImage {
     return ci.createCGImage(img, from: img.extent)!
 }
 
-var media = CGRect(x: 0, y: 0, width: 286, height: 430)
+let onA4 = CommandLine.arguments.contains("--on-a4")
+var media = onA4 ? CGRect(x: 0, y: 0, width: 595, height: 842) : CGRect(x: 0, y: 0, width: 286, height: 430)
 let pdf = CGContext(URL(fileURLWithPath: CommandLine.arguments[1]) as CFURL, mediaBox: &media, nil)!
 pdf.beginPDFPage(nil)
 pdf.interpolationQuality = .none
+if onA4 {
+    pdf.translateBy(x: 30, y: 842 - 44 - 430 * 0.88)
+    pdf.scaleBy(x: 0.88, y: 0.88)
+}
 
 // Bars stacked down the page (like MyPost): rotate the barcode 90 degrees.
 let a = code("CICode128BarcodeGenerator", "0100000000000000910000000012345678")

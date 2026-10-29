@@ -40,7 +40,12 @@ Requires the Xcode command line tools (`xcode-select --install`).
 make install-app
 ```
 
-Installs `/Applications/Print Label.app`, which adds **Print Label** to Finder's right-click menu for PDFs. It also works from Open With, or open the app and pick a file. It runs its bundled copy of `print-label` on the default printer with that printer's default settings, and stays silent when it works. An alert appears only if the barcode couldn't be verified or the job couldn't be sent. Each run is logged to `~/Library/Logs/PrintLabel.log`.
+Installs `/Applications/Print Label.app`, which adds two items to Finder's right-click menu for PDFs:
+
+- **Print AusPost Label**: prints the PDF at true size (a MyPost Business 4×6 label).
+- **Print eBay Label**: for labels downloaded from eBay, which puts the same Australia Post label on an A4 page at 88% size. The page is cropped to the label and scaled back up to 4×6, so the printed label and its barcode are the same size as a MyPost one (`--fit 4x6in`).
+
+Open With, or opening the app and picking a file, prints as an AusPost label. The app runs its bundled copy of `print-label` on the default printer with that printer's default settings, and stays silent when it works. An alert appears only if the barcode couldn't be verified or the job couldn't be sent. Each run is logged to `~/Library/Logs/PrintLabel.log`.
 
 Set your thermal printer as the default and its darkness default first:
 
@@ -49,7 +54,15 @@ lpoptions -d QUEUE
 lpadmin -p QUEUE -o Darkness-default=Low   # option name depends on the driver
 ```
 
-If the menu item doesn't appear, run `killall Finder`, or look under right-click → Services. To test without printing, run `"/Applications/Print Label.app/Contents/MacOS/PrintLabel" --dry-run label.pdf`.
+The items appear at the bottom of the right-click menu, or inside its **Services** submenu. If they're missing, run `killall Finder`. If they're still missing after reinstalling, LaunchServices may hold a stale registration of the copy in `build/`; clear it and rebuild the services cache:
+
+```sh
+LS=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+$LS -u "$PWD/build/Print Label.app"; $LS -f "/Applications/Print Label.app"
+/System/Library/CoreServices/pbs -flush; /System/Library/CoreServices/pbs -update; killall Finder
+```
+
+Services can also be switched on and off in System Settings → Keyboard → Keyboard Shortcuts → Services → Files and Folders. To test without printing, run `"/Applications/Print Label.app/Contents/MacOS/PrintLabel" --dry-run label.pdf` (add `--fit 4x6in` before the file for an eBay label).
 
 ## Use
 
@@ -69,6 +82,7 @@ List queue names with `lpstat -p`. Run `print-label --help` for every option:
 | `-o key=value` | none | passed to `lp`, e.g. `-o Darkness=Low` (option names depend on the driver: `lpoptions -p QUEUE -l`) |
 | `--page-size SIZE` | `Custom.WxH` from the PDF | `lp` PageSize |
 | `--no-rotate` | off | don't turn pages so bars run along the feed |
+| `--fit WxH[in\|mm]` | off | crop the page to its content and scale that to fit a label of this size, e.g. `--fit 4x6in` |
 | `--out FILE.pdf` | none | don't print, write the result |
 
 ### Calibrating
@@ -111,6 +125,7 @@ Builds a synthetic label with made-up data, then processes it at `--reduce` 0, 1
 - At every level, print-label must verify all barcodes. The label has one barcode in each direction plus a QR code.
 - At 1 and 2, both barcode directions must be detected and thinned.
 - At 0, the output must also decode independently.
+- The same label shrunk onto an A4 page, processed with `--fit 4x6in`, must scale back to 4×6 with every barcode verified, and decode independently at 0.
 
 Real labels contain names and addresses, so don't commit them. `.gitignore` blocks PDFs and images outside `Tests/fixtures`.
 
